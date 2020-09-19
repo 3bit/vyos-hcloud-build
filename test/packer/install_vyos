@@ -1,0 +1,32 @@
+#!/bin/bash
+set -e
+
+cloud-init status --wait
+
+# Create a directory for our custom install scripts
+TMP_DIR=$(mktemp -d -t installscripts-XXXXXXXXXXXXXXXXX)
+
+# Copy all install scripts to our TMP_DIR
+cp /opt/vyatta/sbin/install-* $TMP_DIR
+
+# Change all references to other scripts (source ...) to our custom scripts
+find "$TMP_DIR" -type f -exec sudo sed -i "s@/opt/vyatta/sbin/install-@$TMP_DIR/install-@g" {} \;
+
+# Remove the warning before formatting the disk, as this has a default
+# of NO - wouldn't work with our appraoch of acceppting all defaults.
+sed -i 's/^\s*warn_of_dire_consequences\s*$//g' "$TMP_DIR/install-get-partition"
+
+# The password for the default user 'vyos' has no default value.
+# We change the script to disable password login for this user.
+sed -i "s@change_password \$DEFAULT_USER@set_encrypted_password \$DEFAULT_USER \"*\"@g" "$TMP_DIR/install-postinst-new"
+
+# Delete the current config file.
+# This forces the install scripts to install the default config
+rm /opt/vyatta/etc/config/config.boot
+
+# Run our scripts
+# VYATTA_PROCESS_CLIENT='gui2_rest' tricks the install scripts to accept all defaults
+sudo VYATTA_PROCESS_CLIENT='gui2_rest' "$TMP_DIR/install-image"
+
+# Cleanup
+rm -rf "$TMP_DIR"

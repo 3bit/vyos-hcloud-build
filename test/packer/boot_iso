@@ -1,0 +1,22 @@
+#!/bin/bash
+sudo mkdir /live
+sudo mv /tmp/boot.iso /live/boot.iso
+BOOTUUID=$(sudo blkid | grep /dev/sda1: | sed -n 's/.* UUID="\([^\"]*\)\".*/\1/p')
+sudo touch /etc/grub.d/09_isoboot
+echo '#!/bin/sh' | sudo tee -a /etc/grub.d/09_isoboot
+echo 'exec tail -n +3 $0' | sudo tee -a /etc/grub.d/09_isoboot
+echo 'menuentry "ISO Boot" --class os --class gnu-linux --class gnu --class os --group group_main {' | sudo tee -a /etc/grub.d/09_isoboot
+echo '         set isofile="/live/boot.iso"' | sudo tee -a /etc/grub.d/09_isoboot
+echo '         insmod part_gpt' | sudo tee -a /etc/grub.d/09_isoboot
+echo '         insmod ext2' | sudo tee -a /etc/grub.d/09_isoboot
+echo '         insmod loopback' | sudo tee -a /etc/grub.d/09_isoboot
+echo '         insmod iso9660' | sudo tee -a /etc/grub.d/09_isoboot
+echo '         loopback loop (hd0,gpt1)$isofile' | sudo tee -a /etc/grub.d/09_isoboot
+echo "         search --no-floppy --fs-uuid --set=root $BOOTUUID" | sudo tee -a /etc/grub.d/09_isoboot
+echo '         linux (loop)/live/vmlinuz fromiso=/dev/sda1/$isofile boot=live toram noconfig=sudo username=root hostname=vyos' | sudo tee -a /etc/grub.d/09_isoboot
+echo '         initrd (loop)/live/initrd.img' | sudo tee -a /etc/grub.d/09_isoboot
+echo '}' | sudo tee -a /etc/grub.d/09_isoboot
+sudo chmod +x /etc/grub.d/09_isoboot
+sudo grub-mkconfig -o /boot/grub/grub.cfg
+sudo update-grub
+sudo reboot

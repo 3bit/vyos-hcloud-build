@@ -1,0 +1,8 @@
+vyos-build/
+test/private_key_pem
+test/server_ip
+test/terraform/.terraform
+test/terraform/terraform.tfstate
+test/terraform/terraform.tfstate.backup
+test/packer/iso
+test/hcloud_snapshot_id

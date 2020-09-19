@@ -1,0 +1,154 @@
+name: v1.3-rolling
+
+on: 
+  workflow_dispatch:
+  schedule:
+     - cron: '0 5 * * *'
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GIT_CLONE_URL: https://github.com/vyos/vyos-build
+  BRANCH: current
+  BUILD_ARCH: amd64
+  BUILD_BY: vyos-hcloud-build@github.com
+  BUILD_TYPE: release
+  VERSION: 1.3-rolling
+  ISO_BASENAME: vyos-hcloud
+  BUILD_ID: vyos-hcloud-build-${{github.run_id}}-${{github.run_number}}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: vyos/vyos-build:current
+      options: --workdir /vyos --privileged
+    
+    steps:
+      - name: Set env variables
+        run: |
+          now=$(date +%Y%m%d%H%M)
+          echo "::set-env name=BUILD_TIME::$now"
+          echo "::set-env name=ISO_NAME::$ISO_BASENAME-$VERSION-$now-$BUILD_ARCH.iso"
+
+      - uses: actions/checkout@v2
+
+      - name: Clone vyos/vyos-build
+        run: git clone -b $BRANCH --single-branch $GIT_CLONE_URL
+
+      - name: Setup cloud-init support for Hetzner Cloud
+        run: |
+          cp -r ./cloud-init/hetzner ./vyos-build/tools/cloud-init/hetzner
+          cat ./Makefile.hetzner >> ./vyos-build/Makefile
+
+      - name: Build ISO
+        working-directory: ./vyos-build
+        run: |
+          ./configure --architecture $BUILD_ARCH --build-by "$BUILD_BY" --build-type $BUILD_TYPE --version $VERSION-$BUILD_TIME
+          sudo make hetzner
+
+      - name: Prepare upload
+        working-directory: ./vyos-build/build
+        run: ln -rnsf "live-image-$BUILD_ARCH.hybrid.iso" "$ISO_NAME"
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: ${{ env.ISO_BASENAME }}
+          path: vyos-build/build/${{ env.ISO_NAME }}
+
+
+  packer:
+    runs-on: ubuntu-latest
+    needs: build
+
+    container: 
+      image: hashicorp/packer:light
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: ${{ env.ISO_BASENAME }}
+          path: test/packer/iso
+
+      - name: Set env variables
+        working-directory: ./test/packer/iso
+        run: |
+          iso=$(ls | grep ^${{ env.ISO_BASENAME }}-${{ env.VERSION }}-[0-9]*-${{ env.BUILD_ARCH }}.iso$)
+          echo "::set-env name=ISO_NAME::$iso"
+
+      - run: packer build .
+        working-directory: ./test/packer
+        env:
+          PKR_VAR_HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          PKR_VAR_BUILD_ID: ${{ env.BUILD_ID }}
+          PKR_VAR_ISO: ./iso/${{ env.ISO_NAME }}
+
+  test:
+    runs-on: ubuntu-latest
+    needs: packer
+
+    steps:
+      - uses: actions/checkout@v2
+      
+      - uses: hashicorp/setup-terraform@v1
+      - uses: 3bit/setup-hcloud@v1
+
+      - run: terraform init
+        working-directory: ./test/terraform
+
+      - run: terraform apply -auto-approve
+        env:
+          TF_VAR_HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          TF_VAR_BUILD_ID: ${{ env.BUILD_ID }}
+        working-directory: ./test/terraform
+
+      - run: ./run_test
+        working-directory: ./test
+
+      - run: terraform destroy -auto-approve
+        if: ${{ always() }}
+        env:
+          TF_VAR_HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+          TF_VAR_BUILD_ID: ${{ env.BUILD_ID }}
+        working-directory: ./test/terraform
+        
+      - name: Delete snapshot created by packer
+        if: ${{ always() }}
+        env:
+          HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+        run: |
+          image_id=$(hcloud image list --selector $BUILD_ID -o columns=id -o noheader)
+          hcloud image delete $image_id
+
+  release:
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: ${{ env.ISO_BASENAME }}
+          path: iso
+
+      - name: Set env variables
+        working-directory: iso
+        run: |
+          iso=$(ls | grep ^${{ env.ISO_BASENAME }}-${{ env.VERSION }}-[0-9]*-${{ env.BUILD_ARCH }}.iso$)
+          echo "::set-env name=ISO_NAME::$iso"
+          echo "::set-env name=ISO_NAME_LATEST::${{ env.ISO_BASENAME }}-${{ env.VERSION }}-${{ env.BUILD_ARCH }}-latest.iso"
+          echo "::set-env name=RELEASE_TAG::v${{ env.VERSION }}"
+          
+      - name: Add ISO to release
+        working-directory: iso
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          hub release edit -a "$ISO_NAME" -m "" "$RELEASE_TAG"
+          mv $ISO_NAME $ISO_NAME_LATEST
+          hub release edit -a $ISO_NAME_LATEST -m "" "$RELEASE_TAG"

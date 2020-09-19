@@ -1,0 +1,49 @@
+#!/bin/bash
+
+script_dir=$(dirname $0)
+server_ip=$(cat "$script_dir/server_ip")
+ssh_cmd="ssh -q -i $script_dir/private_key_pem -t -oConnectTimeout=2 -oBatchMode=yes -oStrictHostKeyChecking=no vyos@$server_ip"
+
+function check_cloudinit_status() {
+  echo -n 'Reading cloud-init status ... '
+  local status=$($ssh_cmd 'cloud-init status --wait' 2>&1 | tail -n 1)
+  if [ $? == 0 ]; then
+    echo 'OK'
+  else
+    echo 'FAILED'
+    exit 1
+  fi
+  
+  echo "Cloud-init $status"
+
+  [[ $status =~ "status: done"* ]] && exit 0
+  exit 1
+}
+
+function wait_for_server() {
+
+  local i=0
+
+  echo -n "Waiting for server ... "
+  while [ $i -lt 20 ]
+  do
+    $ssh_cmd "echo '...'" > /dev/null 2>&1 
+    if [ $? == 0 ]; then
+      echo "READY"
+      break
+    fi
+
+    sleep 5
+    i=$[$i+1]
+  done
+
+  if [ $i == 20 ]; then 
+    echo "FAILED"
+    exit 1
+  fi
+}
+
+wait_for_server
+check_cloudinit_status
+
+exit 0

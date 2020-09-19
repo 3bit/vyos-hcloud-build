@@ -1,0 +1,31 @@
+system {
+    host-name vyos
+    syslog {
+        global {
+            facility all {
+                level info
+            }
+            facility protocols {
+                level debug
+            }
+        }
+    }
+    ntp {
+        server  "ntp1.hetzner.de"
+        server  "ntp2.hetzner.com"
+        server  "ntp3.hetzner.net"
+    }
+    console {
+        device ttyS0 {
+            speed 9600
+        }
+    }
+    config-management {
+        commit-revisions 100
+    }
+}
+
+interfaces {
+    loopback lo {
+    }
+}
