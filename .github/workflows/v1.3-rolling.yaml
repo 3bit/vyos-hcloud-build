@@ -1,6 +1,6 @@
 name: v1.3-rolling
 
-on: 
+on:
   workflow_dispatch:
   schedule:
      - cron: '0 5 * * *'
@@ -25,13 +25,13 @@ jobs:
     container:
       image: vyos/vyos-build:current
       options: --workdir /vyos --privileged
-    
+
     steps:
       - name: Set env variables
         run: |
           now=$(date +%Y%m%d%H%M)
-          echo "::set-env name=BUILD_TIME::$now"
-          echo "::set-env name=ISO_NAME::$ISO_BASENAME-$VERSION-$now-$BUILD_ARCH.iso"
+          echo "BUILD_TIME=$now" >> $GITHUB_ENV
+          echo "ISO_NAME=$ISO_BASENAME-$VERSION-$now-$BUILD_ARCH.iso" >> $GITHUB_ENV
 
       - uses: actions/checkout@v2
 
@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
 
-    container: 
+    container:
       image: hashicorp/packer:light
 
     steps:
@@ -78,7 +78,7 @@ jobs:
         working-directory: ./test/packer/iso
         run: |
           iso=$(ls | grep ^${{ env.ISO_BASENAME }}-${{ env.VERSION }}-[0-9]*-${{ env.BUILD_ARCH }}.iso$)
-          echo "::set-env name=ISO_NAME::$iso"
+          echo "ISO_NAME=$iso" >> $GITHUB_ENV
 
       - run: packer build .
         working-directory: ./test/packer
@@ -93,7 +93,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      
+
       - uses: hashicorp/setup-terraform@v1
       - uses: 3bit/setup-hcloud@v1
 
@@ -115,7 +115,7 @@ jobs:
           TF_VAR_HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
           TF_VAR_BUILD_ID: ${{ env.BUILD_ID }}
         working-directory: ./test/terraform
-        
+
       - name: Delete snapshot created by packer
         if: ${{ always() }}
         env:
@@ -127,7 +127,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: test
-    
+
     steps:
       - uses: actions/checkout@v2
 
@@ -140,10 +140,10 @@ jobs:
         working-directory: iso
         run: |
           iso=$(ls | grep ^${{ env.ISO_BASENAME }}-${{ env.VERSION }}-[0-9]*-${{ env.BUILD_ARCH }}.iso$)
-          echo "::set-env name=ISO_NAME::$iso"
-          echo "::set-env name=ISO_NAME_LATEST::${{ env.ISO_BASENAME }}-${{ env.VERSION }}-${{ env.BUILD_ARCH }}-latest.iso"
-          echo "::set-env name=RELEASE_TAG::v${{ env.VERSION }}"
-          
+          echo "ISO_NAME=$iso" >> $GITHUB_ENV
+          echo "ISO_NAME_LATEST=${{ env.ISO_BASENAME }}-${{ env.VERSION }}-${{ env.BUILD_ARCH }}-latest.iso" >> $GITHUB_ENV
+          echo "RELEASE_TAG="v${{ env.VERSION }}" >> $GITHUB_ENV
+
       - name: Add ISO to release
         working-directory: iso
         env:
