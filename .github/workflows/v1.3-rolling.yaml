@@ -142,7 +142,7 @@ jobs:
           iso=$(ls | grep ^${{ env.ISO_BASENAME }}-${{ env.VERSION }}-[0-9]*-${{ env.BUILD_ARCH }}.iso$)
           echo "ISO_NAME=$iso" >> $GITHUB_ENV
           echo "ISO_NAME_LATEST=${{ env.ISO_BASENAME }}-${{ env.VERSION }}-${{ env.BUILD_ARCH }}-latest.iso" >> $GITHUB_ENV
-          echo "RELEASE_TAG="v${{ env.VERSION }}" >> $GITHUB_ENV
+          echo "RELEASE_TAG=v${{ env.VERSION }}" >> $GITHUB_ENV
 
       - name: Add ISO to release
         working-directory: iso
